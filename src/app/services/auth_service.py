@@ -9,7 +9,8 @@ from uuid import UUID
 
 import bcrypt
 from fastapi import HTTPException, status
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -185,7 +186,7 @@ def verify_token(token: str, token_type: str) -> dict:
     """
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=["HS256"])
-    except JWTError:
+    except InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",

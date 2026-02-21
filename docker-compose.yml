@@ -1,0 +1,74 @@
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "443:443"
+      - "80:80"
+    depends_on:
+      - app
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+      - ./static:/app/static:ro
+    networks:
+      - internal
+
+  app:
+    build: .
+    depends_on:
+      - db
+      - redis
+      - ollama
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /opt/pixelart/src
+    volumes:
+      - art_storage:/var/art
+    read_only: true
+    tmpfs:
+      - /tmp
+    networks:
+      - internal
+
+  db:
+    image: postgres:16
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pixelart}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpassword}
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+
+  ollama:
+    image: ollama/ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - internal
+
+volumes:
+  art_storage:
+  pg_data:
+  redis_data:
+  ollama_models:
+
+networks:
+  internal:
+    driver: bridge

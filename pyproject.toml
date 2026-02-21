@@ -1,0 +1,13 @@
+[project]
+name = "pixel-art-platform"
+version = "0.1.0"
+description = "AI pixel art collectible platform powered by Ollama"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+
+[tool.setuptools.packages.find]
+where = ["src"]

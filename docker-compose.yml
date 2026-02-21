@@ -50,14 +50,9 @@ services:
 
   ollama:
     image: ollama/ollama
-    # GPU passthrough - uncomment when nvidia-container-toolkit is available
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ollama_models:/root/.ollama
     networks:

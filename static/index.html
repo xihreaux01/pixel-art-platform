@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PixelForge - Pixel Art Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <!-- Toast notification area -->
+    <div id="toast-container"></div>
+
+    <!-- Top navigation bar -->
+    <nav id="navbar">
+        <div class="nav-brand">
+            <a href="#/dashboard" class="logo">PixelForge</a>
+        </div>
+        <div class="nav-links" id="nav-links">
+            <a href="#/dashboard" data-auth="true">Dashboard</a>
+            <a href="#/generate" data-auth="true">Generate</a>
+            <a href="#/marketplace">Marketplace</a>
+            <a href="#/collection" data-auth="true">Collection</a>
+            <a href="#/credits" data-auth="true">Credits</a>
+            <span id="nav-balance" class="nav-balance" data-auth="true"></span>
+            <button id="btn-logout" class="btn btn-sm btn-outline" data-auth="true">Logout</button>
+            <a href="#/login" class="btn btn-sm btn-primary" data-auth="false">Login</a>
+        </div>
+        <button class="hamburger" id="hamburger" aria-label="Toggle menu">
+            <span></span><span></span><span></span>
+        </button>
+    </nav>
+
+    <!-- Main app content area -->
+    <main id="app"></main>
+
+    <!-- Phone verification modal -->
+    <div id="phone-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <h2>Verify Phone Number</h2>
+            <p>Enter your phone number to unlock free daily generation.</p>
+            <form id="phone-form">
+                <input type="tel" id="phone-input" placeholder="+1 555-123-4567" required>
+                <div class="modal-actions">
+                    <button type="submit" class="btn btn-primary">Verify</button>
+                    <button type="button" class="btn btn-outline" id="phone-modal-close">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

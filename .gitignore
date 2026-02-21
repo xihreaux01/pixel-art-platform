@@ -12,6 +12,7 @@ venv/
 .env
 .env.*
 !.env.example
+!.env.staging
 
 # IDE
 .vscode/
@@ -30,6 +31,12 @@ docker-compose.override.yml
 *.sqlite3
 uploads/
 media/
+/var/art/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Logs
 *.log

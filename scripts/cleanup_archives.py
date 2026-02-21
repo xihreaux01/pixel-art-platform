@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Weekly cleanup of old tool_call_archives rows.
 
-Deletes rows older than 30 days in batches to avoid long-held locks.
+Applies differentiated retention policies per the architecture plan:
+  - Successful generations: 90 days
+  - Failed generations:     30 days
+  - Flagged (moderation):   365 days (1 year)
+
+Deletes rows in batches to avoid long-held locks.
 
 Usage:
     DATABASE_URL=postgresql://... python scripts/cleanup_archives.py
@@ -22,7 +27,11 @@ import asyncpg  # type: ignore[import-untyped]
 
 DEFAULT_DATABASE_URL = "postgresql://app:devpassword@db:5432/pixelart"
 BATCH_SIZE = 10_000
-RETENTION_DAYS = 30
+
+# Retention policies (days) keyed by job status category.
+RETENTION_DAYS_SUCCESS = 90
+RETENTION_DAYS_FAILED = 30
+RETENTION_DAYS_FLAGGED = 365
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,35 +49,70 @@ def _get_dsn() -> str:
     return url
 
 
+async def _batch_delete(conn: asyncpg.Connection, category: str, cutoff: datetime) -> int:
+    """Delete archives for a given status category older than *cutoff*.
+
+    The query joins tool_call_archives to art_generation_jobs to determine the
+    job's final status, then applies the per-category retention cutoff.
+
+    Returns total rows deleted for this category.
+    """
+    total_deleted = 0
+
+    # Map category to the set of job statuses it covers.
+    status_sets = {
+        "success": ("complete",),
+        "failed": ("failed", "cancelled"),
+        "flagged": ("flagged",),
+    }
+    statuses = status_sets.get(category, ())
+    if not statuses:
+        return 0
+
+    while True:
+        result: str = await conn.execute(
+            """
+            DELETE FROM tool_call_archives
+            WHERE archive_id IN (
+                SELECT tca.archive_id
+                FROM tool_call_archives tca
+                JOIN art_generation_jobs agj ON agj.job_id = tca.job_id
+                WHERE agj.status = ANY($1::text[])
+                  AND tca.created_at < $2
+                LIMIT $3
+            )
+            """,
+            list(statuses),
+            cutoff,
+            BATCH_SIZE,
+        )
+        deleted = int(result.split()[-1])
+        total_deleted += deleted
+        if deleted > 0:
+            log.info("[%s] Batch deleted %d rows (running total: %d)", category, deleted, total_deleted)
+        if deleted < BATCH_SIZE:
+            break
+
+    return total_deleted
+
+
 async def cleanup(dsn: str) -> int:
-    """Delete stale archives in batches and return total rows deleted."""
+    """Delete stale archives per retention policy and return total rows deleted."""
     conn: asyncpg.Connection = await asyncpg.connect(dsn)
-    cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    now = datetime.now(timezone.utc)
     total_deleted = 0
 
     try:
-        while True:
-            # Use a CTE with LIMIT to batch-delete without locking the whole table.
-            result: str = await conn.execute(
-                """
-                DELETE FROM tool_call_archives
-                WHERE archive_id IN (
-                    SELECT archive_id
-                    FROM tool_call_archives
-                    WHERE created_at < $1
-                    LIMIT $2
-                )
-                """,
-                cutoff,
-                BATCH_SIZE,
-            )
-            # asyncpg returns e.g. "DELETE 5000"
-            deleted = int(result.split()[-1])
+        for category, retention_days in [
+            ("success", RETENTION_DAYS_SUCCESS),
+            ("failed", RETENTION_DAYS_FAILED),
+            ("flagged", RETENTION_DAYS_FLAGGED),
+        ]:
+            cutoff = now - timedelta(days=retention_days)
+            log.info("Cleaning %s archives older than %d days (cutoff: %s)", category, retention_days, cutoff.isoformat())
+            deleted = await _batch_delete(conn, category, cutoff)
             total_deleted += deleted
-            log.info("Batch deleted %d rows (running total: %d)", deleted, total_deleted)
-
-            if deleted < BATCH_SIZE:
-                break
+            log.info("[%s] Subtotal deleted: %d", category, deleted)
     finally:
         await conn.close()
 
@@ -77,7 +121,12 @@ async def cleanup(dsn: str) -> int:
 
 async def main() -> None:
     dsn = _get_dsn()
-    log.info("Starting cleanup of tool_call_archives older than %d days", RETENTION_DAYS)
+    log.info(
+        "Starting cleanup -- retention: success=%dd, failed=%dd, flagged=%dd",
+        RETENTION_DAYS_SUCCESS,
+        RETENTION_DAYS_FAILED,
+        RETENTION_DAYS_FLAGGED,
+    )
     total = await cleanup(dsn)
     log.info("Cleanup complete. Total rows deleted: %d", total)
 

@@ -998,6 +998,87 @@ textarea {
     color: var(--accent-cyan);
 }
 
+/* --- Screen reader only --- */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* --- Character counter --- */
+.char-counter {
+    text-align: right;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 0.3rem;
+}
+
+/* --- Progress bar error state --- */
+.progress-bar-error {
+    background: linear-gradient(90deg, var(--danger), #ff6b6b) !important;
+}
+
+/* --- SSE log entry colors by event type --- */
+.sse-log .log-entry.log-state_change {
+    color: var(--accent-cyan);
+}
+
+.sse-log .log-entry.log-progress,
+.sse-log .log-entry.log-tool_call {
+    color: var(--accent-green);
+}
+
+.sse-log .log-entry.log-complete {
+    color: var(--accent-yellow);
+    font-weight: bold;
+}
+
+.sse-log .log-entry.log-failed {
+    color: var(--danger);
+    font-weight: bold;
+}
+
+/* --- Result card actions --- */
+.result-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.result-card {
+    border-color: var(--accent-green);
+}
+
+/* --- Focus visible styles for keyboard navigation --- */
+.tier-option:focus-visible,
+.quick-action-card:focus-visible,
+.listing-card:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 2px;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline: 2px solid var(--accent-cyan);
+    outline-offset: 2px;
+}
+
+/* --- Success button hover --- */
+.btn-success:hover:not(:disabled) {
+    background: #4dff8a;
+    box-shadow: 0 0 12px rgba(46, 213, 115, 0.4);
+}
+
 /* --- Responsive --- */
 @media (max-width: 600px) {
     #app {
@@ -1010,4 +1091,9 @@ textarea {
     .detail-row { flex-direction: column; gap: 0.25rem; }
     .detail-value { text-align: left; max-width: 100%; }
     .auth-container { margin: 1.5rem auto; }
+    .tier-selector { flex-direction: column; }
+    .result-actions { flex-direction: column; align-items: center; }
+    .modal-actions { flex-direction: column; }
+    .modal-actions .btn { width: 100%; }
+    .detail-actions { flex-direction: column; align-items: center; }
 }

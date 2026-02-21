@@ -71,12 +71,12 @@
 
     async function tryRefresh() {
         try {
-            await fetch(API.AUTH + '/refresh', {
+            var res = await fetch(API.AUTH + '/refresh', {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'Content-Type': 'application/json' },
             });
-            return true;
+            return res.ok;
         } catch {
             return false;
         }
@@ -294,15 +294,16 @@
             btn.disabled = true;
             btn.textContent = 'Logging in...';
             try {
+                var loginEmail = document.getElementById('login-email').value;
                 var data = await api(API.AUTH + '/login', {
                     method: 'POST',
                     body: {
-                        email: document.getElementById('login-email').value,
+                        email: loginEmail,
                         password: document.getElementById('login-password').value,
                     },
                 });
                 state.isLoggedIn = true;
-                state.user = { email: document.getElementById('login-email').value };
+                state.user = { email: loginEmail, username: data.username || loginEmail };
                 showToast('Login successful!', 'success');
                 await fetchBalance();
                 navigate('/dashboard');
@@ -391,8 +392,16 @@
 
         // Quick action navigation
         container.querySelectorAll('.quick-action-card').forEach(function (card) {
+            card.setAttribute('tabindex', '0');
+            card.setAttribute('role', 'link');
             card.addEventListener('click', function () {
                 window.location.hash = card.getAttribute('data-nav');
+            });
+            card.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    window.location.hash = card.getAttribute('data-nav');
+                }
             });
         });
 
@@ -512,31 +521,59 @@
             <div class="pixel-divider"></div>\
             <div class="gen-form">\
                 <div class="form-group">\
-                    <label>Select Tier</label>\
-                    <div class="tier-selector" id="tier-selector">\
-                        <div class="tier-option selected" data-tier="free">\
+                    <label for="tier-selector">Select Tier</label>\
+                    <div class="tier-selector" id="tier-selector" role="radiogroup" aria-label="Generation tier">\
+                        <div class="tier-option selected" data-tier="free" role="radio" aria-checked="true" tabindex="0">\
                             <span class="tier-name">Free</span>\
                             <span class="tier-cost">1/day (phone verified)</span>\
+                        </div>\
+                        <div class="tier-option" data-tier="standard" role="radio" aria-checked="false" tabindex="0">\
+                            <span class="tier-name">Standard</span>\
+                            <span class="tier-cost">Credits required</span>\
+                        </div>\
+                        <div class="tier-option" data-tier="premium" role="radio" aria-checked="false" tabindex="0">\
+                            <span class="tier-name">Premium</span>\
+                            <span class="tier-cost">More credits, higher quality</span>\
                         </div>\
                     </div>\
                 </div>\
                 <div class="form-group">\
-                    <label>Prompt</label>\
-                    <textarea id="gen-prompt" placeholder="Describe the pixel art you want to generate..." maxlength="2000"></textarea>\
+                    <label for="gen-prompt">Prompt</label>\
+                    <textarea id="gen-prompt" placeholder="Describe the pixel art you want to generate..." maxlength="2000" aria-describedby="prompt-counter"></textarea>\
+                    <div class="char-counter" id="prompt-counter"><span id="prompt-chars">0</span> / 2000</div>\
                 </div>\
                 <button id="gen-submit" class="btn btn-primary btn-lg">Generate</button>\
             </div>\
-            <div id="gen-progress" class="progress-container hidden"></div>\
-            <div id="gen-result" class="gen-result hidden"></div>';
+            <div id="gen-progress" class="progress-container hidden" role="status" aria-live="polite"></div>\
+            <div id="gen-result" class="gen-result hidden" role="status" aria-live="polite"></div>';
 
         var selectedTier = 'free';
 
+        // Character counter for prompt
+        var promptInput = document.getElementById('gen-prompt');
+        var charDisplay = document.getElementById('prompt-chars');
+        promptInput.addEventListener('input', function () {
+            charDisplay.textContent = promptInput.value.length;
+        });
+
         // Tier selection
+        function selectTier(opt) {
+            document.querySelectorAll('.tier-option').forEach(function (o) {
+                o.classList.remove('selected');
+                o.setAttribute('aria-checked', 'false');
+            });
+            opt.classList.add('selected');
+            opt.setAttribute('aria-checked', 'true');
+            selectedTier = opt.getAttribute('data-tier');
+        }
+
         document.querySelectorAll('.tier-option').forEach(function (opt) {
-            opt.addEventListener('click', function () {
-                document.querySelectorAll('.tier-option').forEach(function (o) { o.classList.remove('selected'); });
-                opt.classList.add('selected');
-                selectedTier = opt.getAttribute('data-tier');
+            opt.addEventListener('click', function () { selectTier(opt); });
+            opt.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectTier(opt);
+                }
             });
         });
 
@@ -585,10 +622,12 @@
     });
 
     function connectSSE(jobId, progressEl, resultEl, btn) {
-        var evtSource = new EventSource(API.GENERATIONS + '/' + jobId + '/events');
+        var evtSource = new EventSource(API.GENERATIONS + '/' + jobId + '/events', { withCredentials: true });
         state.currentEventSource = evtSource;
         var toolCalls = 0;
         var logEl = document.getElementById('sse-log');
+        var sseRetryCount = 0;
+        var MAX_SSE_RETRIES = 3;
 
         evtSource.onmessage = function (event) {
             var rawData = event.data;
@@ -597,7 +636,7 @@
             try {
                 var parsed = JSON.parse(rawData);
                 var logEntry = document.createElement('div');
-                logEntry.className = 'log-entry';
+                logEntry.className = 'log-entry log-' + (parsed.event || 'update');
                 logEntry.textContent = (parsed.event || 'update') + ': ' + (parsed.message || JSON.stringify(parsed));
                 logEl.appendChild(logEntry);
                 logEl.scrollTop = logEl.scrollHeight;
@@ -607,24 +646,37 @@
                     document.getElementById('tool-calls-count').textContent = 'Tool calls: ' + toolCalls;
                 }
 
+                if (parsed.event === 'state_change') {
+                    var pct = Math.min(15 + toolCalls * 10, 90);
+                    document.getElementById('progress-fill').style.width = pct + '%';
+                    document.getElementById('progress-status').textContent = parsed.message || ('State: ' + (parsed.new_status || 'updating'));
+                }
+
                 if (parsed.event === 'progress' || parsed.event === 'tool_call') {
                     var pct = Math.min(15 + toolCalls * 10, 90);
                     document.getElementById('progress-fill').style.width = pct + '%';
                     document.getElementById('progress-status').textContent = parsed.message || 'Processing...';
                 }
 
+                if (parsed.event === 'heartbeat') {
+                    // Heartbeat received - connection is alive, no UI update needed
+                    return;
+                }
+
                 if (parsed.event === 'complete') {
                     document.getElementById('progress-fill').style.width = '100%';
                     document.getElementById('progress-status').textContent = 'Generation complete!';
+                    document.getElementById('progress-status').classList.add('text-green');
 
                     resultEl.classList.remove('hidden');
                     resultEl.innerHTML = '\
-                        <div class="card">\
+                        <div class="card result-card">\
                             <div class="card-header">Generation Complete</div>\
-                            <p>Your pixel art has been generated.</p>\
+                            <p>Your pixel art has been generated successfully.</p>\
                             <div class="art-id-display">Art ID: ' + escapeHtml(parsed.art_id || 'N/A') + '</div>\
-                            <div class="mt-2">\
+                            <div class="result-actions mt-2">\
                                 <a href="#/provenance/' + escapeHtml(parsed.art_id || '') + '" class="btn btn-outline btn-sm">View Provenance</a>\
+                                <a href="#/collection" class="btn btn-primary btn-sm">My Collection</a>\
                             </div>\
                         </div>';
 
@@ -636,7 +688,9 @@
                 }
 
                 if (parsed.event === 'failed') {
-                    document.getElementById('progress-status').textContent = 'Generation failed: ' + (parsed.error_message || 'Unknown error');
+                    document.getElementById('progress-fill').style.width = '100%';
+                    document.getElementById('progress-fill').classList.add('progress-bar-error');
+                    document.getElementById('progress-status').textContent = 'Generation failed: ' + escapeHtml(parsed.error_message || 'Unknown error');
                     document.getElementById('progress-status').classList.add('text-danger');
                     evtSource.close();
                     state.currentEventSource = null;
@@ -644,15 +698,20 @@
                     btn.textContent = 'Generate';
                 }
             } catch {
-                // Non-JSON data, possibly keepalive
+                // Non-JSON data, possibly keepalive comment
             }
         };
 
         evtSource.onerror = function () {
-            // SSE connection lost - poll for final status
-            evtSource.close();
-            state.currentEventSource = null;
-            pollJobStatus(jobId, progressEl, resultEl, btn);
+            sseRetryCount++;
+            if (sseRetryCount > MAX_SSE_RETRIES) {
+                // SSE connection lost after retries - poll for final status
+                evtSource.close();
+                state.currentEventSource = null;
+                document.getElementById('progress-status').textContent = 'Stream disconnected. Checking status...';
+                pollJobStatus(jobId, progressEl, resultEl, btn);
+            }
+            // Otherwise, EventSource will auto-reconnect
         };
     }
 
@@ -662,23 +721,34 @@
             if (data.status === 'completed') {
                 document.getElementById('progress-fill').style.width = '100%';
                 document.getElementById('progress-status').textContent = 'Generation complete!';
+                document.getElementById('progress-status').classList.add('text-green');
                 resultEl.classList.remove('hidden');
                 resultEl.innerHTML = '\
-                    <div class="card">\
+                    <div class="card result-card">\
                         <div class="card-header">Generation Complete</div>\
-                        <p>Your pixel art has been generated.</p>\
+                        <p>Your pixel art has been generated successfully.</p>\
                         <div class="art-id-display">Art ID: ' + escapeHtml(data.art_id || 'N/A') + '</div>\
-                        <div class="mt-2">\
+                        <div class="result-actions mt-2">\
                             <a href="#/provenance/' + escapeHtml(data.art_id || '') + '" class="btn btn-outline btn-sm">View Provenance</a>\
+                            <a href="#/collection" class="btn btn-primary btn-sm">My Collection</a>\
                         </div>\
                     </div>';
+                fetchBalance();
             } else if (data.status === 'failed') {
+                document.getElementById('progress-fill').classList.add('progress-bar-error');
                 document.getElementById('progress-status').textContent = 'Generation failed: ' + (data.error_message || 'Unknown error');
+                document.getElementById('progress-status').classList.add('text-danger');
             } else {
-                document.getElementById('progress-status').textContent = 'Status: ' + data.status + ' (stream disconnected, refresh to check)';
+                document.getElementById('progress-status').textContent = 'Status: ' + escapeHtml(data.status) + ' (stream disconnected)';
+                // Auto-poll again after a delay if still in-progress
+                if (data.status === 'pending' || data.status === 'executing_tools') {
+                    setTimeout(function () { pollJobStatus(jobId, progressEl, resultEl, btn); }, 3000);
+                    return; // Don't re-enable button yet
+                }
             }
         } catch (err) {
-            document.getElementById('progress-status').textContent = 'Could not fetch job status';
+            document.getElementById('progress-status').textContent = 'Could not fetch job status. Please refresh.';
+            document.getElementById('progress-status').classList.add('text-danger');
         }
         btn.disabled = false;
         btn.textContent = 'Generate';
@@ -738,10 +808,16 @@
 
         container.innerHTML = html;
 
-        // Listing card clicks
+        // Listing card clicks + keyboard
         container.querySelectorAll('.listing-card').forEach(function (card) {
             card.addEventListener('click', function () {
                 navigate('/listing/' + card.getAttribute('data-listing-id'));
+            });
+            card.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navigate('/listing/' + card.getAttribute('data-listing-id'));
+                }
             });
         });
 
@@ -762,6 +838,12 @@
                             var card = temp.firstElementChild;
                             card.addEventListener('click', function () {
                                 navigate('/listing/' + card.getAttribute('data-listing-id'));
+                            });
+                            card.addEventListener('keydown', function (e) {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    navigate('/listing/' + card.getAttribute('data-listing-id'));
+                                }
                             });
                             grid.appendChild(card);
                         });
@@ -784,7 +866,7 @@
 
     function createListingCardHtml(listing) {
         return '\
-            <div class="listing-card" data-listing-id="' + escapeHtml(String(listing.listing_id)) + '">\
+            <div class="listing-card" data-listing-id="' + escapeHtml(String(listing.listing_id)) + '" tabindex="0" role="link" aria-label="Listing ' + escapeHtml(String(listing.listing_id)) + ', price ' + formatCents(listing.asking_price_cents) + '">\
                 <div class="listing-art-id">Art: ' + escapeHtml(String(listing.art_id)) + '</div>\
                 <div class="listing-price">' + formatCents(listing.asking_price_cents) + '</div>\
                 <div class="listing-seller">Seller: ' + truncateId(String(listing.seller_user_id)) + '</div>\
@@ -931,8 +1013,12 @@
     // =========================================================================
     function init() {
         // Hamburger menu toggle
-        document.getElementById('hamburger').addEventListener('click', function () {
-            document.getElementById('nav-links').classList.toggle('open');
+        var hamburgerBtn = document.getElementById('hamburger');
+        hamburgerBtn.addEventListener('click', function () {
+            var navLinks = document.getElementById('nav-links');
+            navLinks.classList.toggle('open');
+            var isOpen = navLinks.classList.contains('open');
+            hamburgerBtn.setAttribute('aria-expanded', String(isOpen));
         });
 
         // Logout button
@@ -958,7 +1044,7 @@
 
         // Initial route
         if (!window.location.hash || window.location.hash === '#' || window.location.hash === '#/') {
-            window.location.hash = '#/login';
+            window.location.hash = state.isLoggedIn ? '#/dashboard' : '#/login';
         }
         handleRoute();
     }
